@@ -1,3 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
 # 虚拟环境
 venv/
 
@@ -10,6 +19,20 @@ __pycache__/
 .vscode/
 .idea/
 
+# Data and generated index files
+data/*.h5ad
+data/*.h5
+data/*.csv
+data/*.tsv
+indexes/*.faiss
+indexes/*.index
+*.npy
+*.npz
+
+# Logs
+*.log
+
+# OS
 # 环境变量
 .env
 

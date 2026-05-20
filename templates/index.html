@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>单细胞 ANN 检索系统</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<main class="page">
+    <header>
+        <h1>单细胞 ANN 检索系统</h1>
+        <p>中期基础框架：读取数据、向量化、构建 ANN 索引、返回 Top-K 相似细胞。</p>
+    </header>
+
+    <section class="card">
+        <h2>系统状态</h2>
+        <pre id="status">正在读取状态...</pre>
+        <button id="refresh-status">刷新状态</button>
+    </section>
+
+    <section class="card">
+        <h2>检索设置</h2>
+
+        <div class="form-row">
+            <label for="mode">查询方式</label>
+            <select id="mode">
+                <option value="id">按细胞编号</option>
+                <option value="cell_id">按细胞 ID</option>
+                <option value="vector">按自定义向量</option>
+            </select>
+        </div>
+
+        <div class="form-row" id="cell-index-row">
+            <label for="cell-index">细胞编号</label>
+            <input id="cell-index" type="number" value="0" min="0">
+        </div>
+
+        <div class="form-row hidden" id="cell-id-row">
+            <label for="cell-id">细胞 ID</label>
+            <input id="cell-id" type="text" placeholder="例如 AAACCTG...">
+        </div>
+
+        <div class="form-row hidden" id="vector-row">
+            <label for="vector">查询向量</label>
+            <input id="vector" type="text" placeholder="逗号分隔，例如 0.1,0.2,0.3">
+        </div>
+
+        <div class="form-row">
+            <label for="k">Top-K</label>
+            <input id="k" type="number" value="10" min="1" max="100">
+        </div>
+
+        <div class="form-row">
+            <label for="index-type">索引类型</label>
+            <select id="index-type">
+                <option value="hnsw">HNSW</option>
+                <option value="flat">Flat 精确检索</option>
+                <option value="ivf">IVF</option>
+            </select>
+        </div>
+
+        <button id="search-button">开始检索</button>
+        <p id="error-message" class="error"></p>
+    </section>
+
+    <section class="card">
+        <h2>检索结果</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>排名</th>
+                <th>细胞编号</th>
+                <th>细胞 ID</th>
+                <th>相似度</th>
+                <th>元信息</th>
+            </tr>
+            </thead>
+            <tbody id="results-body">
+            <tr>
+                <td colspan="5" class="empty">暂无结果</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+
+<script src="/static/js/main.js"></script>
+</body>
+</html>
