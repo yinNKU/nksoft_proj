@@ -8,7 +8,13 @@ import numpy as np
 
 from config import Settings
 from src.ann_engine import ANNEngine, ANNEngineError
-from src.data_loader import DataLoaderError, l2_normalize, prepare_dataset
+from src.data_loader import (
+    DataLoaderError,
+    get_available_metadata,
+    get_dataset_summary,
+    l2_normalize,
+    prepare_dataset,
+)
 
 
 class SearchServiceError(RuntimeError):
@@ -63,8 +69,16 @@ class SearchService:
             "n_cells": int(vectors.shape[0]) if vectors is not None else 0,
             "n_dims": int(vectors.shape[1]) if vectors is not None else 0,
             "index_type": self.engine.index_type,
+            "dataset": get_dataset_summary(self.adata) if self.adata is not None else None,
             "last_error": self.last_error,
         }
+
+    def metadata_columns(self) -> dict[str, Any]:
+        """Return available metadata fields for frontend filters and tables."""
+
+        self._ensure_ready()
+        assert self.adata is not None
+        return {"columns": get_available_metadata(self.adata)}
 
     def _ensure_ready(self) -> None:
         if not self.loaded or self.engine.vectors is None or self.metadata is None:
