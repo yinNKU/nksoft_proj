@@ -35,6 +35,13 @@ def create_app() -> Flask:
     def status():
         return jsonify(service.status())
 
+    @app.route("/api/metadata", methods=["GET"])
+    def metadata():
+        try:
+            return jsonify(service.metadata_columns())
+        except SearchServiceError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     @app.route("/api/search", methods=["POST"])
     def search():
         payload = request.get_json(silent=True) or {}
