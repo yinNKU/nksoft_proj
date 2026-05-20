@@ -7,6 +7,13 @@ __pycache__/
 # Virtual environments
 venv/
 .venv/
+# 虚拟环境
+venv/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
 
 # IDE
 .vscode/
@@ -26,5 +33,18 @@ indexes/*.index
 *.log
 
 # OS
+# 环境变量
+.env
+
+# 数据文件（.h5ad 体积较大，按需取消忽略）
+*.h5ad
+
+# Claude
+.claude/
+
+# 下载中间文件
+*.wxdownload
+
+# 系统文件
 .DS_Store
 Thumbs.db
