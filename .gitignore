@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest_tmp/
+tests/_tmp_ann_engine/
 .mypy_cache/
 
 # Virtual environments

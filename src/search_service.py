@@ -48,7 +48,9 @@ class SearchService:
             )
             self.adata = adata
             self.metadata = metadata
-            self.engine.build_index(vectors, index_type=self.settings.default_index_type)
+            # 启动时优先加载已保存的索引缓存；缓存缺失或不匹配时再重建。
+            if not self.load_cached_index(self.settings.default_index_type, vectors=vectors):
+                self.rebuild_index(self.settings.default_index_type, vectors=vectors)
             self.loaded = True
             self.last_error = None
 
@@ -69,6 +71,7 @@ class SearchService:
             "n_cells": int(vectors.shape[0]) if vectors is not None else 0,
             "n_dims": int(vectors.shape[1]) if vectors is not None else 0,
             "index_type": self.engine.index_type,
+            "build_time_ms": self.engine.build_time_ms,
             "dataset": get_dataset_summary(self.adata) if self.adata is not None else None,
             "last_error": self.last_error,
         }
@@ -94,13 +97,74 @@ class SearchService:
         if self.engine.index_type == index_type:
             return
 
-        # 当前直接重建，后续可以缓存多个索引。
-        # TODO: 缓存 HNSW / IVF / Flat，避免前端切换时反复重建。
-        self.engine.build_index(self.engine.vectors, index_type=index_type)
+        # 前端切换索引类型时，先尝试复用缓存，避免反复构建大数据索引。
+        if not self.load_cached_index(index_type):
+            self.rebuild_index(index_type)
+
+    def rebuild_index(self, index_type: str = "hnsw", vectors: np.ndarray | None = None) -> dict[str, Any]:
+        """Rebuild and cache the current dataset index."""
+
+        if vectors is None:
+            # 外部 API 调用重建时通常不会传 vectors，此时直接使用服务中已加载的数据向量。
+            self._ensure_ready()
+            vectors = self.engine.vectors
+        assert vectors is not None
+
+        # 重建后立即写入 .faiss 和 .json，供下一次启动或切换索引时复用。
+        self.engine.build_index(
+            vectors,
+            index_type=index_type,
+            metric="cosine",
+            params=self.settings.ann_params(),
+            dataset_id=str(self.settings.data_path.resolve()),
+        )
+        self.engine.save_index(
+            self.settings.index_path(index_type),
+            self.settings.index_metadata_path(index_type),
+        )
+        return {
+            "index_type": self.engine.index_type,
+            "index_path": str(self.settings.index_path(index_type)),
+            "metadata_path": str(self.settings.index_metadata_path(index_type)),
+            "build_time_ms": self.engine.build_time_ms,
+        }
+
+    def load_cached_index(
+        self,
+        index_type: str = "hnsw",
+        vectors: np.ndarray | None = None,
+    ) -> bool:
+        """Load a cached FAISS index when both index and metadata files match."""
+
+        if vectors is None:
+            vectors = self.engine.vectors
+        if vectors is None:
+            return False
+
+        index_path = self.settings.index_path(index_type)
+        metadata_path = self.settings.index_metadata_path(index_type)
+        if not index_path.exists() or not metadata_path.exists():
+            # 必须同时存在索引和 metadata；缺任意一个都视为缓存不可用。
+            return False
+
+        try:
+            # load_index 会校验 metadata，防止加载到维度或数据集不一致的旧索引。
+            self.engine.load_index(
+                index_path,
+                vectors,
+                metadata_path=metadata_path,
+                dataset_id=str(self.settings.data_path.resolve()),
+            )
+        except ANNEngineError as exc:
+            self.last_error = str(exc)
+            return False
+
+        return True
 
     def _validate_k(self, k: int) -> int:
         if k <= 0:
             raise SearchServiceError("k must be positive")
+        # 服务层限制最大 Top-K，避免前端误传过大数值导致检索或响应过重。
         return min(k, self.settings.max_top_k)
 
     def search_by_cell_index(self, cell_index: int, k: int, index_type: str) -> dict[str, Any]:
