@@ -42,6 +42,16 @@ def create_app() -> Flask:
         except SearchServiceError as exc:
             return jsonify({"error": str(exc)}), 400
 
+    @app.route("/api/rebuild-index", methods=["POST"])
+    def rebuild_index():
+        payload = request.get_json(silent=True) or {}
+        try:
+            # B 负责的动态索引入口：前端或管理员工具可用它切换/重建索引类型。
+            index_type = payload.get("index_type", settings.default_index_type)
+            return jsonify({"success": True, **service.rebuild_index(index_type=index_type)})
+        except SearchServiceError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
     @app.route("/api/search", methods=["POST"])
     def search():
         payload = request.get_json(silent=True) or {}
