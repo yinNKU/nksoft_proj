@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from flask import Flask, jsonify, render_template, request
 
 from config import Settings
@@ -33,14 +35,15 @@ def create_app() -> Flask:
 
     @app.route("/api/status", methods=["GET"])
     def status():
-        return jsonify(service.status())
+        return jsonify({"success": True, **service.status()})
 
     @app.route("/api/metadata", methods=["GET"])
     def metadata():
         try:
-            return jsonify(service.metadata_columns())
+            metadata_payload = service.metadata_columns()
+            return jsonify({"success": True, "fields": metadata_payload.get("columns", [])})
         except SearchServiceError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"success": False, "error": str(exc)}), 400
 
     @app.route("/api/rebuild-index", methods=["POST"])
     def rebuild_index():
@@ -58,41 +61,58 @@ def create_app() -> Flask:
 
         try:
             mode = payload.get("mode", "id")
-            k = int(payload.get("k", settings.default_top_k))
-            index_type = payload.get("index_type", settings.default_index_type)
+            top_k = int(payload.get("top_k", payload.get("k", settings.default_top_k)))
+            index_type = payload.get("index_type")
+            filters = payload.get("filters") or {}
 
+            if not isinstance(filters, dict):
+                raise SearchServiceError("filters must be a dict")
+
+            if index_type:
+                service.ensure_index_type(str(index_type))
+
+            started_at = time.perf_counter()
             if mode == "id":
                 result = service.search_by_cell_index(
                     cell_index=int(payload["cell_index"]),
-                    k=k,
-                    index_type=index_type,
-                )
-            elif mode == "vector":
-                # TODO:
-                # - 前端传入自定义向量后，在 service.search_by_vector 中完成维度校验和归一化。
-                # - 当前先保留接口，后续补具体实现。
-                result = service.search_by_vector(
-                    vector=payload.get("vector", []),
-                    k=k,
-                    index_type=index_type,
+                    top_k=top_k,
+                    filters=filters,
                 )
             elif mode == "cell_id":
-                # TODO:
-                # - 支持使用真实 cell_id 查询，而不只是整数编号。
                 result = service.search_by_cell_id(
                     cell_id=str(payload["cell_id"]),
-                    k=k,
-                    index_type=index_type,
+                    top_k=top_k,
+                    filters=filters,
+                )
+            elif mode == "vector":
+                result = service.search_by_vector(
+                    vector=payload.get("vector", []),
+                    top_k=top_k,
+                    filters=filters,
                 )
             else:
                 raise SearchServiceError(f"Unsupported search mode: {mode}")
 
-            return jsonify(result)
+            query_time_ms = (time.perf_counter() - started_at) * 1000
+            response = {
+                "success": True,
+                "mode": mode,
+                "top_k": top_k,
+                "filters": filters,
+                "query_time_ms": round(query_time_ms, 2),
+                "results": result.get("results", []),
+            }
+            if result.get("warning"):
+                response["warning"] = result["warning"]
+            if getattr(service, "engine", None) is not None:
+                response["index_type"] = service.engine.index_type
+
+            return jsonify(response)
 
         except (KeyError, ValueError, TypeError) as exc:
-            return jsonify({"error": f"Invalid request payload: {exc}"}), 400
+            return jsonify({"success": False, "error": f"Invalid request payload: {exc}"}), 400
         except SearchServiceError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"success": False, "error": str(exc)}), 400
 
     return app
 
