@@ -65,16 +65,21 @@ def create_app() -> Flask:
             index_type = payload.get("index_type")
             filters = payload.get("filters") or {}
 
+            # filters 必须是 dict，避免前端传错类型导致服务层异常。
             if not isinstance(filters, dict):
                 raise SearchServiceError("filters must be a dict")
 
             if index_type:
                 service.ensure_index_type(str(index_type))
 
+            # 记录查询耗时，便于前端展示。
             started_at = time.perf_counter()
             if mode == "id":
+                cell_index = payload.get("cell_index", payload.get("id"))
+                if cell_index is None:
+                    raise SearchServiceError("cell_index is required")
                 result = service.search_by_cell_index(
-                    cell_index=int(payload["cell_index"]),
+                    cell_index=int(cell_index),
                     top_k=top_k,
                     filters=filters,
                 )

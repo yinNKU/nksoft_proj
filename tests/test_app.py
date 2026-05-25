@@ -9,6 +9,7 @@ from src.search_service import SearchServiceError
 
 
 def _build_results(top_k: int):
+    # 生成固定结构的假结果，便于断言返回格式。
     return [
         {
             "rank": idx + 1,
@@ -64,6 +65,7 @@ class FakeService:
 
 @pytest.fixture()
 def client(monkeypatch):
+    # 用 FakeService 替换真实 SearchService，避免依赖真实数据文件。
     monkeypatch.setattr(app_module, "SearchService", FakeService)
     app = app_module.create_app()
     return app.test_client()
@@ -96,6 +98,18 @@ def test_search_by_cell_index(client):
     assert payload["mode"] == "id"
     assert payload["top_k"] == 2
     assert payload["filters"] == {"cell_type": "T"}
+    assert len(payload["results"]) == 2
+
+
+def test_search_by_cell_index_with_id_alias(client):
+    response = client.post(
+        "/api/search",
+        json={"mode": "id", "id": 1, "top_k": 2},
+    )
+
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["mode"] == "id"
     assert len(payload["results"]) == 2
 
 

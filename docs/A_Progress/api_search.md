@@ -22,7 +22,7 @@ curl http://127.0.0.1:5000/api/status
     "n_cells": 69032,
     "n_genes": 32397,
     "n_pcs": 30,
-    "metadata_columns": ["cell_type", "donor", "disease"]
+    "metadata_columns": [...]
   },
   "last_error": null
 }
@@ -36,8 +36,9 @@ curl http://127.0.0.1:5000/api/status
 ```bash
 curl -X POST http://127.0.0.1:5000/api/search ^
   -H "Content-Type: application/json" ^
-  -d "{\"mode\":\"id\",\"cell_index\":0,\"top_k\":5}"
+  -d "{\"mode\":\"id\",\"id\":0,\"top_k\":5}"
 ```
+> `id` 与 `cell_index` 等价，后端会兼容两者。
 
 ### 2.2 按 cell_id 查询
 **请求：**
@@ -62,20 +63,32 @@ curl -X POST http://127.0.0.1:5000/api/search ^
   "mode": "cell_id",
   "top_k": 10,
   "filters": {
-    "cell_type": "T cell"
+    "cell_type": "...",
+    "..."
   },
   "query_time_ms": 3.42,
   "results": [
     {
       "rank": 1,
       "cell_index": 123,
-      "cell_id": "AAACCTGAG",
+      "cell_id": "...",
       "score": 0.982,
       "metadata": {
         "cell_type": "T cell",
         "donor": "donor_1"
       }
-    }
+    },
+    {
+      "rank": 2,
+      "cell_index": 456,
+      "cell_id": "...",
+      "score": 0.972,
+      "metadata": {
+        "cell_type": "T cell",
+        "donor": "donor_1"
+      }
+    },
+    "..."
   ],
   "warning": "Filtered results are fewer than top_k; returning available matches."
 }
@@ -105,7 +118,7 @@ curl http://127.0.0.1:5000/api/metadata
 ```json
 {
   "mode": "id",
-  "cell_index": 0,
+  "id": 0,
   "top_k": 5,
   "filters": {
     "cell_type": "T cell",
@@ -140,3 +153,33 @@ curl http://127.0.0.1:5000/api/metadata
 | cell_id | 真实细胞 ID |
 | score | 相似度得分（余弦相似度） |
 | metadata | 该细胞的元信息字典 |
+
+## 7. 常用测试指令（接口）
+> 以下命令需先启动服务：`python app.py`。
+
+**状态与元数据：**
+```bash
+curl http://127.0.0.1:5000/api/status
+curl http://127.0.0.1:5000/api/metadata
+```
+
+**三种检索模式：**
+```bash
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"cell_id\",\"cell_id\":\"AAACCTGAGCAGGTCA-1_2\",\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"vector\",\"vector\":[0.1,0.2,0.3,0.1,0.2,0.3,0.1,0.2,0.3,0.1,0.1,0.2,0.3,0.1,0.2,0.3,0.1,0.2,0.3,0.1,0.1,0.2,0.3,0.1,0.2,0.3,0.1,0.2,0.3,0.1],\"top_k\":5}"
+```
+
+**条件过滤与不足 Top-K：**
+```bash
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":5,\"filters\":{\"cell_type\":\"hepatocyte\"}}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":10000,\"filters\":{\"cell_type\":\"hepatocyte\"}}"
+```
+
+**错误场景：**
+```bash
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"cell_id\",\"cell_id\":\"missing\",\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":999999,\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"vector\",\"vector\":[0.1],\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":5,\"filters\":{\"bad_field\":\"x\"}}"
+```

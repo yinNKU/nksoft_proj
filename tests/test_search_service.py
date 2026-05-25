@@ -15,6 +15,7 @@ class FakeEngine:
         self.index_type = "hnsw"
 
     def search(self, query_vector: np.ndarray, top_k: int = 10, k: int | None = None):
+        # 简化版搜索：用内积做相似度，保证测试可重复。
         query = np.asarray(query_vector, dtype=np.float32).reshape(-1)
         scores = self.vectors @ query
         size = int(k if k is not None else top_k)
@@ -24,6 +25,7 @@ class FakeEngine:
 
 def make_service() -> SearchService:
     settings = Settings()
+    # 构造小型向量和元数据，便于覆盖过滤与边界条件。
     vectors = np.array(
         [
             [1.0, 0.0, 0.0],
@@ -41,6 +43,8 @@ def make_service() -> SearchService:
             "donor": ["d1", "d1", "d2", "d2"],
         }
     )
+    # 模拟真实数据：metadata 的索引就是 cell_id 字符串。
+    metadata.index = metadata["cell_id"]
     service = SearchService(settings)
     service.engine = FakeEngine(vectors)
     service.metadata = metadata

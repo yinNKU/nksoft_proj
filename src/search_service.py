@@ -215,8 +215,10 @@ class SearchService:
         self._ensure_ready()
         assert self.metadata is not None
 
-        matches = self.metadata.index[self.metadata["cell_id"] == cell_id].tolist()
-        if not matches:
+        # metadata 的索引可能就是 cell_id，需要用位置索引保证可转成 int。
+        cell_ids = self.metadata["cell_id"].astype(str).to_numpy()
+        matches = np.flatnonzero(cell_ids == str(cell_id))
+        if matches.size == 0:
             raise SearchServiceError("cell_id not found")
 
         return self.search_by_cell_index(int(matches[0]), top_k=top_k, filters=filters)

@@ -108,3 +108,33 @@ python -m pytest tests\test_search_service.py tests\test_app.py -q -p no:cachepr
 ```bash
 python -m pytest tests -q -p no:cacheprovider
 ```
+
+## 7. 接口测试指令（curl）
+> 需要先启动服务：`python app.py`
+
+**状态与元数据：**
+```bash
+curl http://127.0.0.1:5000/api/status
+curl http://127.0.0.1:5000/api/metadata
+```
+
+**三种检索模式：**
+```bash
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"cell_id\",\"cell_id\":\"AAACCTGAG\",\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"vector\",\"vector\":[0.1,0.2,0.3],\"top_k\":5}"
+```
+
+**条件过滤与不足 Top-K：**
+```bash
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":5,\"filters\":{\"cell_type\":\"T cell\"}}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":10,\"filters\":{\"cell_type\":\"rare_type\"}}"
+```
+
+**错误场景：**
+```bash
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"cell_id\",\"cell_id\":\"missing\",\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":999999,\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"vector\",\"vector\":[0.1],\"top_k\":5}"
+curl -X POST http://127.0.0.1:5000/api/search -H "Content-Type: application/json" -d "{\"mode\":\"id\",\"id\":0,\"top_k\":5,\"filters\":{\"bad_field\":\"x\"}}"
+```
