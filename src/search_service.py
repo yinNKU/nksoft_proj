@@ -83,6 +83,11 @@ class SearchService:
         assert self.adata is not None
         return {"columns": get_available_metadata(self.adata)}
 
+    def ensure_index_type(self, index_type: str) -> None:
+        """Ensure the requested index type is available before searching."""
+
+        self._ensure_index_type(index_type)
+
     def _ensure_ready(self) -> None:
         if not self.loaded or self.engine.vectors is None or self.metadata is None:
             raise SearchServiceError(
@@ -167,12 +172,18 @@ class SearchService:
         # 服务层限制最大 Top-K，避免前端误传过大数值导致检索或响应过重。
         return min(k, self.settings.max_top_k)
 
-    def search_by_cell_index(self, cell_index: int, k: int, index_type: str) -> dict[str, Any]:
+    def search_by_cell_index(
+        self,
+        cell_index: int,
+        top_k: int,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Search similar cells by integer cell index."""
 
         self._ensure_ready()
-        self._ensure_index_type(index_type)
-        k = self._validate_k(k)
+        if self.engine.index_type is None:
+            self._ensure_index_type(self.settings.default_index_type)
+        top_k = self._validate_k(top_k)
 
         vectors = self.engine.vectors
         assert vectors is not None
@@ -181,15 +192,19 @@ class SearchService:
             raise SearchServiceError(f"cell_index out of range: {cell_index}")
 
         query_vector = vectors[cell_index]
-        similarities, indices = self.engine.search(query_vector, k=k)
+        similarities, indices = self.engine.search(query_vector, k=top_k)
 
-        return {
-            "query": {"mode": "id", "cell_index": cell_index},
-            "index_type": self.engine.index_type,
-            "results": self._format_results(similarities, indices),
-        }
+        results = self._format_results(similarities, indices)
+        filtered, warning = self._apply_metadata_filters(results, filters, top_k=top_k)
 
-    def search_by_cell_id(self, cell_id: str, k: int, index_type: str) -> dict[str, Any]:
+        return {"results": filtered, "warning": warning}
+
+    def search_by_cell_id(
+        self,
+        cell_id: str,
+        top_k: int,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Search similar cells by cell ID.
 
         TODO:
@@ -200,13 +215,20 @@ class SearchService:
         self._ensure_ready()
         assert self.metadata is not None
 
-        matches = self.metadata.index[self.metadata["cell_id"] == cell_id].tolist()
-        if not matches:
-            raise SearchServiceError(f"cell_id not found: {cell_id}")
+        # metadata 的索引可能就是 cell_id，需要用位置索引保证可转成 int。
+        cell_ids = self.metadata["cell_id"].astype(str).to_numpy()
+        matches = np.flatnonzero(cell_ids == str(cell_id))
+        if matches.size == 0:
+            raise SearchServiceError("cell_id not found")
 
-        return self.search_by_cell_index(int(matches[0]), k=k, index_type=index_type)
+        return self.search_by_cell_index(int(matches[0]), top_k=top_k, filters=filters)
 
-    def search_by_vector(self, vector: list[float], k: int, index_type: str) -> dict[str, Any]:
+    def search_by_vector(
+        self,
+        vector: list[float],
+        top_k: int,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Search similar cells by a custom vector.
 
         TODO:
@@ -215,23 +237,30 @@ class SearchService:
         """
 
         self._ensure_ready()
-        self._ensure_index_type(index_type)
-        k = self._validate_k(k)
+        if self.engine.index_type is None:
+            self._ensure_index_type(self.settings.default_index_type)
+        top_k = self._validate_k(top_k)
 
-        query = np.asarray(vector, dtype=np.float32).reshape(1, -1)
-        if query.shape[1] != self.engine.dimension:
+        if vector is None:
+            raise SearchServiceError("vector must be a list of floats")
+
+        query = np.asarray(vector, dtype=np.float32)
+        if query.ndim == 2 and query.shape[0] == 1:
+            query = query.reshape(-1)
+        if query.ndim != 1:
+            raise SearchServiceError("vector must be a 1D list of floats")
+        if self.engine.dimension is None or query.shape[0] != self.engine.dimension:
             raise SearchServiceError(
-                f"vector dimension mismatch: expected {self.engine.dimension}, got {query.shape[1]}"
+                f"vector dimension mismatch: expected {self.engine.dimension}, got {query.shape[0]}"
             )
 
         query = l2_normalize(query)[0]
-        similarities, indices = self.engine.search(query, k=k)
+        similarities, indices = self.engine.search(query, k=top_k)
 
-        return {
-            "query": {"mode": "vector"},
-            "index_type": self.engine.index_type,
-            "results": self._format_results(similarities, indices),
-        }
+        results = self._format_results(similarities, indices)
+        filtered, warning = self._apply_metadata_filters(results, filters, top_k=top_k)
+
+        return {"results": filtered, "warning": warning}
 
     def _format_results(self, similarities: np.ndarray, indices: np.ndarray) -> list[dict[str, Any]]:
         """Format Top-K results as JSON-serializable dictionaries."""
@@ -253,11 +282,45 @@ class SearchService:
             results.append(
                 {
                     "rank": rank,
-                    "index": idx,
+                    "cell_index": idx,
                     "cell_id": str(metadata.get("cell_id", idx)),
-                    "similarity": float(similarity),
+                    "score": float(similarity),
                     "metadata": metadata,
                 }
             )
 
         return results
+
+    def _apply_metadata_filters(
+        self,
+        results: list[dict[str, Any]],
+        filters: dict[str, Any] | None,
+        top_k: int,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Filter results by metadata fields and return optional warning."""
+
+        if not filters:
+            return results, None
+
+        if not isinstance(filters, dict):
+            raise SearchServiceError("filters must be a dict")
+
+        assert self.metadata is not None
+        available_fields = set(self.metadata.columns)
+        for field in filters.keys():
+            if field not in available_fields:
+                raise SearchServiceError(f"metadata field not found: {field}")
+
+        filtered = [
+            item
+            for item in results
+            if all(item.get("metadata", {}).get(key) == value for key, value in filters.items())
+        ]
+        for rank, item in enumerate(filtered, start=1):
+            item["rank"] = rank
+
+        warning = None
+        if len(filtered) < top_k:
+            warning = "Filtered results are fewer than top_k; returning available matches."
+
+        return filtered, warning
