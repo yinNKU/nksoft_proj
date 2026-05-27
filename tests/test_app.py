@@ -63,12 +63,81 @@ class FakeService:
         return {"index_type": index_type, "build_time_ms": 1.0}
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    # 用 FakeService 替换真实 SearchService，避免依赖真实数据文件。
+class FakeDatasetManager:
+    def __init__(self) -> None:
+        self.datasets = []
+
+    def list_datasets(self):
+        return list(self.datasets)
+
+    def add_dataset(self, name: str, path: str, description: str = "") -> None:
+        if any(dataset["name"] == name for dataset in self.datasets):
+            raise app_module.DatasetManagerError("dataset already exists")
+        self.datasets.append(
+            {
+                "name": name,
+                "path": path,
+                "description": description,
+                "is_active": 0,
+            }
+        )
+
+    def delete_dataset(self, name: str) -> None:
+        before = len(self.datasets)
+        self.datasets = [dataset for dataset in self.datasets if dataset["name"] != name]
+        if len(self.datasets) == before:
+            raise app_module.DatasetManagerError("dataset not found")
+
+    def select_dataset(self, name: str) -> None:
+        found = False
+        for dataset in self.datasets:
+            dataset["is_active"] = 1 if dataset["name"] == name else 0
+            found = found or dataset["name"] == name
+        if not found:
+            raise app_module.DatasetManagerError("dataset not found")
+
+
+class FakeUserService:
+    def __init__(self) -> None:
+        self.users = [
+            {"username": "admin", "password": "secret", "role": "admin"},
+        ]
+
+    def register(self, username: str, password: str, role: str = "user") -> None:
+        if any(user["username"] == username for user in self.users):
+            raise app_module.UserServiceError("user already exists")
+        self.users.append({"username": username, "password": password, "role": role})
+
+    def login(self, username: str, password: str) -> bool:
+        return any(
+            user["username"] == username and user["password"] == password for user in self.users
+        )
+
+    def list_users(self):
+        return [
+            {"id": idx + 1, "username": user["username"], "role": user["role"], "created_at": "now"}
+            for idx, user in enumerate(self.users)
+        ]
+
+    def delete_user(self, username: str) -> None:
+        before = len(self.users)
+        self.users = [user for user in self.users if user["username"] != username]
+        if len(self.users) == before:
+            raise app_module.UserServiceError("user not found")
+
+
+def _create_client(monkeypatch):
     monkeypatch.setattr(app_module, "SearchService", FakeService)
+    monkeypatch.setattr(app_module, "DatasetManager", FakeDatasetManager)
+    monkeypatch.setattr(app_module, "UserService", FakeUserService)
     app = app_module.create_app()
     return app.test_client()
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    # 这里把后半段路由也纳入测试，避免 app.py 只测到搜索接口。
+    return _create_client(monkeypatch)
 
 
 def test_status_endpoint(client):
@@ -144,3 +213,52 @@ def test_filters_payload_validation(client):
     payload = response.get_json()
     assert payload["success"] is False
     assert payload["error"] == "filters must be a dict"
+
+
+#C：下面的测试覆盖了 app.py 中剩余的用户和数据集相关路由，确保这些基础功能也在测试范围内。
+def test_dataset_routes(client):
+    add_response = client.post(
+        "/api/datasets",
+        json={"name": "liver", "path": "data/liver.h5ad", "description": "demo"},
+    )
+    assert add_response.get_json()["success"] is True
+
+    list_response = client.get("/api/datasets")
+    datasets = list_response.get_json()["datasets"]
+    assert len(datasets) == 1
+    assert datasets[0]["name"] == "liver"
+
+    select_response = client.post("/api/datasets/select", json={"name": "liver"})
+    assert select_response.get_json()["success"] is True
+
+    delete_response = client.delete("/api/datasets/liver")
+    assert delete_response.get_json()["success"] is True
+
+
+def test_user_routes(client):
+    register_response = client.post(
+        "/api/register",
+        json={"username": "alice", "password": "pw123", "role": "user"},
+    )
+    assert register_response.get_json()["success"] is True
+
+    login_response = client.post("/api/login", json={"username": "alice", "password": "pw123"})
+    assert login_response.get_json()["success"] is True
+
+    users_response = client.get("/api/users")
+    usernames = [user["username"] for user in users_response.get_json()["users"]]
+    assert "alice" in usernames
+
+    logout_response = client.post("/api/logout")
+    assert logout_response.get_json()["success"] is True
+
+    delete_response = client.delete("/api/users/alice")
+    assert delete_response.get_json()["success"] is True
+
+
+def test_rebuild_index_route(client):
+    response = client.post("/api/rebuild-index", json={"index_type": "flat"})
+
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["index_type"] == "flat"
