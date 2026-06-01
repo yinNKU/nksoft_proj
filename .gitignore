@@ -3,7 +3,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest_tmp/
+pytest_tmp*/
+pytest-cache-files-*/
+test_tmp_env/
 tests/_tmp_ann_engine/
+pytest.ini
 .mypy_cache/
 
 # Virtual environments
@@ -22,12 +26,17 @@ __pycache__/
 .idea/
 
 # Data and generated index files
+*.db
+*.db-journal
+database/*.db
+database/*.db-journal
 data/*.h5ad
 data/*.h5
 data/*.csv
 data/*.tsv
 indexes/*.faiss
 indexes/*.index
+indexes/*.json
 *.npy
 *.npz
 

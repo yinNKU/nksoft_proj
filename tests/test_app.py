@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
@@ -42,6 +44,17 @@ class FakeService:
 
     def metadata_columns(self):
         return {"columns": ["cell_type", "donor"]}
+
+    def embedding_points(self, basis: str = "umap", color_by: str = "cell_type"):
+        return {
+            "basis": basis,
+            "color_by": color_by,
+            "n_points": 2,
+            "points": [
+                {"cell_index": 0, "cell_id": "cell_0", "x": 0.0, "y": 0.0, "color": "T"},
+                {"cell_index": 1, "cell_id": "cell_1", "x": 1.0, "y": 1.0, "color": "B"},
+            ],
+        }
 
     def ensure_index_type(self, index_type: str) -> None:
         self.engine.index_type = index_type
@@ -113,6 +126,31 @@ class FakeUserService:
             user["username"] == username and user["password"] == password for user in self.users
         )
 
+    def user_exists(self, username: str) -> bool:
+        return any(user["username"] == username for user in self.users)
+
+    def authenticate(self, username: str, password: str):
+        for idx, user in enumerate(self.users):
+            if user["username"] == username and user["password"] == password:
+                return {
+                    "id": idx + 1,
+                    "username": user["username"],
+                    "role": user["role"],
+                    "created_at": "now",
+                }
+        return None
+
+    def get_user(self, username: str):
+        for idx, user in enumerate(self.users):
+            if user["username"] == username:
+                return {
+                    "id": idx + 1,
+                    "username": user["username"],
+                    "role": user["role"],
+                    "created_at": "now",
+                }
+        return None
+
     def list_users(self):
         return [
             {"id": idx + 1, "username": user["username"], "role": user["role"], "created_at": "now"}
@@ -137,6 +175,8 @@ def _create_client(monkeypatch):
 @pytest.fixture()
 def client(monkeypatch):
     # 这里把后半段路由也纳入测试，避免 app.py 只测到搜索接口。
+    test_db = Path(__file__).resolve().parents[1] / "database" / f"test_app_{uuid4().hex}.db"
+    monkeypatch.setenv("NK_DB_PATH", str(test_db))
     return _create_client(monkeypatch)
 
 
@@ -154,6 +194,15 @@ def test_metadata_endpoint(client):
     payload = response.get_json()
     assert payload["success"] is True
     assert payload["fields"] == ["cell_type", "donor"]
+
+
+def test_embedding_endpoint(client):
+    response = client.get("/api/embedding?basis=umap&color_by=cell_type")
+
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["basis"] == "umap"
+    assert payload["n_points"] == 2
 
 
 def test_search_by_cell_index(client):
@@ -217,6 +266,8 @@ def test_filters_payload_validation(client):
 
 #C：下面的测试覆盖了 app.py 中剩余的用户和数据集相关路由，确保这些基础功能也在测试范围内。
 def test_dataset_routes(client):
+    client.post("/api/login", json={"username": "admin", "password": "secret"})
+
     add_response = client.post(
         "/api/datasets",
         json={"name": "liver", "path": "data/liver.h5ad", "description": "demo"},
@@ -244,19 +295,32 @@ def test_user_routes(client):
 
     login_response = client.post("/api/login", json={"username": "alice", "password": "pw123"})
     assert login_response.get_json()["success"] is True
+    assert login_response.get_json()["user"]["role"] == "user"
+
+    missing_response = client.post("/api/login", json={"username": "missing", "password": "pw123"})
+    assert missing_response.status_code == 404
+    assert missing_response.get_json()["code"] == "account_not_found"
+
+    wrong_password_response = client.post("/api/login", json={"username": "alice", "password": "bad"})
+    assert wrong_password_response.status_code == 401
+    assert wrong_password_response.get_json()["code"] == "invalid_password"
+
+    client.post("/api/login", json={"username": "admin", "password": "secret"})
 
     users_response = client.get("/api/users")
     usernames = [user["username"] for user in users_response.get_json()["users"]]
     assert "alice" in usernames
 
-    logout_response = client.post("/api/logout")
-    assert logout_response.get_json()["success"] is True
-
     delete_response = client.delete("/api/users/alice")
     assert delete_response.get_json()["success"] is True
 
+    logout_response = client.post("/api/logout")
+    assert logout_response.get_json()["success"] is True
+
 
 def test_rebuild_index_route(client):
+    client.post("/api/login", json={"username": "admin", "password": "secret"})
+
     response = client.post("/api/rebuild-index", json={"index_type": "flat"})
 
     payload = response.get_json()

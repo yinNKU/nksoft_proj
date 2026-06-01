@@ -22,6 +22,8 @@ class UserService:
     def register(self, username: str, password: str, role: str = "user") -> int:
         if not username or not password:
             raise UserServiceError("username and password required")
+        if role not in {"user", "admin"}:
+            raise UserServiceError("role must be user or admin")
         # 注册前先查重，避免用户名重复。
         existing = db.fetch_one("SELECT id FROM users WHERE username=?", (username,))
         if existing:
@@ -37,6 +39,28 @@ class UserService:
         if not row:
             return False
         return check_password_hash(row["password_hash"], password)
+
+    def user_exists(self, username: str) -> bool:
+        row = db.fetch_one("SELECT id FROM users WHERE username=?", (username,))
+        return row is not None
+
+    def authenticate(self, username: str, password: str) -> Optional[dict[str, Any]]:
+        row = db.fetch_one(
+            "SELECT id,username,password_hash,role,created_at FROM users WHERE username=?",
+            (username,),
+        )
+        if not row or not check_password_hash(row["password_hash"], password):
+            return None
+        return {
+            "id": row["id"],
+            "username": row["username"],
+            "role": row["role"],
+            "created_at": row["created_at"],
+        }
+
+    def get_user(self, username: str) -> Optional[dict[str, Any]]:
+        row = db.fetch_one("SELECT id,username,role,created_at FROM users WHERE username=?", (username,))
+        return dict(row) if row else None
 
     def list_users(self) -> List[dict[str, Any]]:
         rows = db.fetch_all("SELECT id,username,role,created_at FROM users ORDER BY id DESC")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from config import Settings
 from src.ann_engine import ANNEngine, ANNEngineError
@@ -30,6 +31,7 @@ class SearchService:
         self.adata: Any | None = None
         self.metadata = None
         self.loaded = False
+        self.initializing = False
         self.last_error: str | None = None
 
     def initialize(self, allow_missing_data: bool = False) -> None:
@@ -41,6 +43,7 @@ class SearchService:
         - 增加初始化耗时统计。
         """
 
+        self.initializing = True
         try:
             vectors, adata, metadata = prepare_dataset(
                 self.settings.data_path,
@@ -60,6 +63,8 @@ class SearchService:
 
             self.loaded = False
             self.last_error = str(exc)
+        finally:
+            self.initializing = False
 
     def status(self) -> dict[str, Any]:
         """Return current service status for frontend."""
@@ -67,6 +72,7 @@ class SearchService:
         vectors = self.engine.vectors
         return {
             "loaded": self.loaded,
+            "initializing": self.initializing,
             "data_path": str(self.settings.data_path),
             "n_cells": int(vectors.shape[0]) if vectors is not None else 0,
             "n_dims": int(vectors.shape[1]) if vectors is not None else 0,
@@ -82,6 +88,48 @@ class SearchService:
         self._ensure_ready()
         assert self.adata is not None
         return {"columns": get_available_metadata(self.adata)}
+
+    def embedding_points(self, basis: str = "umap", color_by: str = "cell_type") -> dict[str, Any]:
+        """Return 2D coordinates for frontend PCA/UMAP visualization."""
+
+        self._ensure_ready()
+        assert self.adata is not None
+        assert self.metadata is not None
+
+        basis = basis.lower()
+        obsm_key = "X_umap" if basis == "umap" else "X_pca"
+        if obsm_key not in self.adata.obsm:
+            raise SearchServiceError(f"{obsm_key} not found in dataset")
+
+        coords = np.asarray(self.adata.obsm[obsm_key], dtype=np.float32)
+        if coords.ndim != 2 or coords.shape[1] < 2:
+            raise SearchServiceError(f"{obsm_key} must contain at least two dimensions")
+
+        available_fields = set(self.metadata.columns)
+        if color_by not in available_fields:
+            color_by = "cell_type" if "cell_type" in available_fields else "cell_id"
+
+        points = []
+        for idx, (x, y) in enumerate(coords[:, :2]):
+            row = self.metadata.iloc[idx]
+            cell_id = self._json_safe_value(row.get("cell_id", idx))
+            color_value = self._json_safe_value(row.get(color_by, "unknown"))
+            points.append(
+                {
+                    "cell_index": idx,
+                    "cell_id": str(cell_id),
+                    "x": self._json_safe_value(x),
+                    "y": self._json_safe_value(y),
+                    "color": "unknown" if color_value is None else str(color_value),
+                }
+            )
+
+        return {
+            "basis": basis,
+            "color_by": color_by,
+            "n_points": len(points),
+            "points": points,
+        }
 
     def ensure_index_type(self, index_type: str) -> None:
         """Ensure the requested index type is available before searching."""
@@ -275,9 +323,7 @@ class SearchService:
             # 统一转成字符串/数字，避免 numpy、category 类型无法 JSON 序列化。
             metadata = {}
             for key, value in row.items():
-                if hasattr(value, "item"):
-                    value = value.item()
-                metadata[key] = value if isinstance(value, (int, float, str, bool)) else str(value)
+                metadata[key] = self._json_safe_value(value)
 
             results.append(
                 {
@@ -290,6 +336,27 @@ class SearchService:
             )
 
         return results
+
+    def _json_safe_value(self, value: Any) -> int | float | str | bool | None:
+        """Convert metadata values to strict JSON values.
+
+        Browser JSON.parse rejects NaN/Infinity even if Flask can emit them, so
+        missing numeric metadata must become null before the response is sent.
+        """
+
+        if pd.isna(value):
+            return None
+        if hasattr(value, "item"):
+            value = value.item()
+        if isinstance(value, (np.bool_, bool)):
+            return bool(value)
+        if isinstance(value, (np.integer, int)):
+            return int(value)
+        if isinstance(value, (np.floating, float)):
+            return float(value) if np.isfinite(value) else None
+        if isinstance(value, str):
+            return value
+        return str(value)
 
     def _apply_metadata_filters(
         self,

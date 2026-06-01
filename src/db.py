@@ -12,7 +12,7 @@ from werkzeug.security import generate_password_hash
 from config import Settings
 
 
-DEFAULT_DB = Path(Settings().data_path).resolve().parent / "database" / "app.db"
+DEFAULT_DB = Path(__file__).resolve().parents[1] / "database" / "app.db"
 
 
 def get_db_path() -> Path:
@@ -30,6 +30,7 @@ def get_connection() -> sqlite3.Connection:
     path = get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode=OFF")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -41,6 +42,7 @@ def init_database(schema_path: Optional[Path] = None) -> None:
     db_path = get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode=OFF")
         with open(schema_path, "r", encoding="utf-8") as fh:
             conn.executescript(fh.read())
         # 建表后顺手写入默认管理员和示例数据集，避免空库启动。

@@ -23,6 +23,30 @@ class FakeEngine:
         return scores[indices], indices
 
 
+class FakeAdata:
+    def __init__(self) -> None:
+        self.obsm = {
+            "X_umap": np.array(
+                [
+                    [0.0, 0.0],
+                    [1.0, 1.0],
+                    [2.0, 0.5],
+                    [3.0, 1.5],
+                ],
+                dtype=np.float32,
+            ),
+            "X_pca": np.array(
+                [
+                    [0.0, 0.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [2.0, 0.5, 1.0],
+                    [3.0, 1.5, 1.0],
+                ],
+                dtype=np.float32,
+            ),
+        }
+
+
 def make_service() -> SearchService:
     settings = Settings()
     # 构造小型向量和元数据，便于覆盖过滤与边界条件。
@@ -41,12 +65,14 @@ def make_service() -> SearchService:
             "cell_id": ["cell_a", "cell_b", "cell_c", "cell_d"],
             "cell_type": ["T", "B", "T", "B"],
             "donor": ["d1", "d1", "d2", "d2"],
+            "quality_score": [np.nan, 0.8, 0.9, 1.0],
         }
     )
     # 模拟真实数据：metadata 的索引就是 cell_id 字符串。
     metadata.index = metadata["cell_id"]
     service = SearchService(settings)
     service.engine = FakeEngine(vectors)
+    service.adata = FakeAdata()
     service.metadata = metadata
     service.loaded = True
     service.last_error = None
@@ -61,6 +87,26 @@ def test_search_by_cell_index_success():
     assert len(result["results"]) == 3
     assert result["results"][0]["rank"] == 1
     assert result["results"][0]["cell_index"] == 0
+
+
+def test_metadata_nan_is_json_null():
+    service = make_service()
+
+    result = service.search_by_cell_index(cell_index=0, top_k=1)
+
+    assert result["results"][0]["metadata"]["quality_score"] is None
+
+
+def test_embedding_points_success():
+    service = make_service()
+
+    result = service.embedding_points(basis="umap", color_by="cell_type")
+
+    assert result["basis"] == "umap"
+    assert result["color_by"] == "cell_type"
+    assert result["n_points"] == 4
+    assert result["points"][0]["cell_id"] == "cell_a"
+    assert result["points"][0]["color"] == "T"
 
 
 def test_search_by_cell_id_success():
