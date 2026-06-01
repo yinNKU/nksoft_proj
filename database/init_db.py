@@ -19,6 +19,7 @@ def init_db(db_path: Path = DB_PATH, schema_path: Path = SCHEMA) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
+        conn.execute("PRAGMA journal_mode=OFF")
         # 先执行 schema.sql，确保所有表结构都已创建。
         with schema_path.open("r", encoding="utf-8") as fh:
             sql = fh.read()

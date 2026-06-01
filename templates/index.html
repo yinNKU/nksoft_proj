@@ -2,88 +2,262 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>单细胞 ANN 检索系统</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单细胞 ANN 检索工作台</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
 <main class="page">
-    <header>
-        <h1>单细胞 ANN 检索系统</h1>
-        <p>中期基础框架：读取数据、向量化、构建 ANN 索引、返回 Top-K 相似细胞。</p>
+    <header class="topbar">
+        <div>
+            <p class="eyebrow">21st Group</p>
+            <h1>单细胞 ANN 检索</h1>
+        </div>
+        <div class="session-box">
+            <span id="session-label">未登录</span>
+            <button id="logout-button" class="secondary hidden" type="button">退出</button>
+        </div>
     </header>
 
-    <section class="card">
-        <h2>系统状态</h2>
-        <pre id="status">正在读取状态...</pre>
-        <button id="refresh-status">刷新状态</button>
+    <section class="auth-shell" id="login-panel">
+        <div class="auth-card">
+            <div class="auth-copy">
+                <span class="section-kicker">Local account</span>
+                <h2>登录</h2>
+                <small>支持普通用户和管理员账号。默认管理员：admin / admin。</small>
+            </div>
+
+            <form id="login-form" class="form-block auth-form">
+                <label for="login-username">账号</label>
+                <input id="login-username" autocomplete="username" placeholder="请输入账号">
+                <label for="login-password">密码</label>
+                <input id="login-password" type="password" autocomplete="current-password" placeholder="请输入密码">
+                <button type="submit">登录</button>
+                <button id="show-register" type="button" class="secondary">注册新账号</button>
+                <p id="auth-message" class="message" aria-live="polite"></p>
+            </form>
+        </div>
     </section>
 
-    <section class="card">
-        <h2>检索设置</h2>
+    <section class="auth-shell hidden" id="register-panel">
+        <div class="auth-card register-card">
+            <div class="auth-copy">
+                <span class="section-kicker">Create account</span>
+                <h2>注册普通用户</h2>
+                <p>管理员账号由admin登录后在后台创建。</p>
+            </div>
 
-        <div class="form-row">
-            <label for="mode">查询方式</label>
-            <select id="mode">
-                <option value="id">按细胞编号</option>
-                <option value="cell_id">按细胞 ID</option>
-                <option value="vector">按自定义向量</option>
-            </select>
+            <form id="register-form" class="form-block auth-form">
+                <label for="register-username">账号</label>
+                <input id="register-username" autocomplete="username" placeholder="请输入账号">
+                <label for="register-password">密码</label>
+                <input id="register-password" type="password" autocomplete="new-password" placeholder="请输入密码">
+                <button type="submit">完成注册</button>
+                <button id="back-to-login" type="button" class="secondary">返回登录</button>
+                <p id="register-message" class="message" aria-live="polite"></p>
+            </form>
         </div>
-
-        <div class="form-row" id="cell-index-row">
-            <label for="cell-index">细胞编号</label>
-            <input id="cell-index" type="number" value="0" min="0">
-        </div>
-
-        <div class="form-row hidden" id="cell-id-row">
-            <label for="cell-id">细胞 ID</label>
-            <input id="cell-id" type="text" placeholder="例如 AAACCTG...">
-        </div>
-
-        <div class="form-row hidden" id="vector-row">
-            <label for="vector">查询向量</label>
-            <input id="vector" type="text" placeholder="逗号分隔，例如 0.1,0.2,0.3">
-        </div>
-
-        <div class="form-row">
-            <label for="k">Top-K</label>
-            <input id="k" type="number" value="10" min="1" max="100">
-        </div>
-
-        <div class="form-row">
-            <label for="index-type">索引类型</label>
-            <select id="index-type">
-                <option value="hnsw">HNSW</option>
-                <option value="flat">Flat 精确检索</option>
-                <option value="ivf">IVF</option>
-            </select>
-        </div>
-
-        <button id="search-button">开始检索</button>
-        <p id="error-message" class="error"></p>
     </section>
 
-    <section class="card">
-        <h2>检索结果</h2>
-        <table>
-            <thead>
-            <tr>
-                <th>排名</th>
-                <th>细胞编号</th>
-                <th>细胞 ID</th>
-                <th>相似度</th>
-                <th>元信息</th>
-            </tr>
-            </thead>
-            <tbody id="results-body">
-            <tr>
-                <td colspan="5" class="empty">暂无结果</td>
-            </tr>
-            </tbody>
-        </table>
+    <section class="workspace hidden" id="workspace">
+        <section class="panel status-panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>系统状态</h2>
+                </div>
+                <button id="refresh-status" class="secondary" type="button">刷新</button>
+            </div>
+            <div id="status-summary" class="status-grid"></div>
+            <pre id="status-json">正在读取状态...</pre>
+        </section>
+
+        <section class="panel search-panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>细胞检索</h2>
+                    <p>支持按细胞编号、真实 cell_id、自定义 PCA 向量三种方式检索。</p>
+                </div>
+            </div>
+
+            <div class="search-grid">
+                <div class="controls">
+                    <div class="form-row">
+                        <label for="mode">查询方式</label>
+                        <select id="mode">
+                            <option value="id">按细胞编号</option>
+                            <option value="cell_id">按细胞 ID</option>
+                            <option value="vector">按自定义向量</option>
+                        </select>
+                    </div>
+
+                    <div class="form-row" id="cell-index-row">
+                        <label for="cell-index">细胞编号</label>
+                        <input id="cell-index" type="number" value="0" min="0">
+                    </div>
+
+                    <div class="form-row hidden" id="cell-id-row">
+                        <label for="cell-id">细胞 ID</label>
+                        <input id="cell-id" type="text" placeholder="例如 AAACCTG...">
+                    </div>
+
+                    <div class="form-row hidden" id="vector-row">
+                        <label for="vector">查询向量</label>
+                        <textarea id="vector" rows="4" placeholder="逗号分隔，例如 0.1,0.2,0.3"></textarea>
+                    </div>
+
+                    <div class="inline-fields">
+                        <div class="form-row compact">
+                            <label for="k">Top-K</label>
+                            <input id="k" type="number" value="10" min="1" max="100">
+                        </div>
+                        <div class="form-row compact">
+                            <label for="index-type">索引</label>
+                            <select id="index-type">
+                                <option value="hnsw">HNSW</option>
+                                <option value="flat">Flat</option>
+                                <option value="ivf">IVF</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button id="search-button" type="button">开始检索</button>
+                    <p id="error-message" class="message error"></p>
+                </div>
+
+                <div class="filters">
+                    <h3>metadata筛选</h3>
+                    <div id="metadata-fields" class="metadata-fields">登录并加载数据后显示字段。</div>
+                    <div class="filter-editor">
+                        <select id="filter-field"></select>
+                        <input id="filter-value" placeholder="筛选值">
+                        <button id="add-filter" class="secondary" type="button">添加</button>
+                    </div>
+                    <div id="active-filters" class="chips"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>检索结果</h2>
+                    <p id="result-meta">暂无查询。</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>排名</th>
+                        <th>细胞编号</th>
+                        <th>细胞 ID</th>
+                        <th>相似度</th>
+                        <th>元信息</th>
+                    </tr>
+                    </thead>
+                    <tbody id="results-body">
+                    <tr>
+                        <td colspan="5" class="empty">暂无结果</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="panel visualization-panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>PCA / UMAP 可视化</h2>
+                </div>
+                <div class="viz-controls">
+                    <select id="viz-basis" aria-label="可视化坐标">
+                        <option value="umap">UMAP</option>
+                        <option value="pca">PCA</option>
+                    </select>
+                    <select id="viz-color" aria-label="着色字段">
+                        <option value="cell_type">cell_type</option>
+                    </select>
+                    <select id="viz-highlight-mode" aria-label="Top-K 高亮模式">
+                        <option value="spread">相对坐标</option>
+                        <option value="native">真实坐标</option>
+                    </select>
+                    <button id="reload-viz" class="secondary" type="button">加载图</button>
+                </div>
+            </div>
+            <div class="viz-layout">
+                <div class="canvas-wrap">
+                    <canvas id="embedding-canvas" width="920" height="520"></canvas>
+                    <div id="viz-tooltip" class="viz-tooltip hidden"></div>
+                </div>
+                <div class="viz-side">
+                    <h3>图例</h3>
+                    <div id="viz-status" class="muted">数据加载完成后点击“加载图”。</div>
+                    <div id="viz-legend" class="viz-legend"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel hidden" id="admin-panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>管理员</h2>
+                    <p>管理 SQLite 中的用户、数据集记录，并触发 ANN 索引重建。</p>
+                </div>
+            </div>
+
+            <div class="admin-grid">
+                <div>
+                    <h3>数据集</h3>
+                    <form id="dataset-form" class="stacked">
+                        <input id="dataset-name" placeholder="数据集名称">
+                        <input id="dataset-path" placeholder="本地 .h5ad 绝对路径或相对路径">
+                        <input id="dataset-desc" placeholder="描述">
+                        <button type="submit" class="secondary">添加数据集</button>
+                    </form>
+                    <div id="dataset-list" class="list"></div>
+                </div>
+
+                <div>
+                    <h3>索引</h3>
+                    <div class="stacked">
+                        <select id="rebuild-index-type">
+                            <option value="hnsw">HNSW</option>
+                            <option value="flat">Flat</option>
+                            <option value="ivf">IVF</option>
+                        </select>
+                        <button id="rebuild-index" class="secondary" type="button">重建当前索引</button>
+                        <p id="admin-message" class="message"></p>
+                    </div>
+
+                    <h3>用户</h3>
+                    <form id="admin-user-form" class="stacked">
+                        <input id="admin-new-username" placeholder="用户名">
+                        <input id="admin-new-password" type="password" placeholder="密码">
+                        <select id="admin-new-role">
+                            <option value="user">普通用户</option>
+                            <option value="admin">管理员</option>
+                        </select>
+                        <button type="submit" class="secondary">创建账号</button>
+                    </form>
+                    <div id="user-list" class="list"></div>
+                </div>
+            </div>
+        </section>
     </section>
 </main>
 
+<div id="register-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+        <span class="section-kicker">Account needed</span>
+        <h2 id="modal-title">需要先注册</h2>
+        <p>请先注册普通用户，再返回登录。</p>
+        <div class="modal-actions">
+            <button id="modal-go-register" type="button">去注册</button>
+            <button id="modal-cancel" type="button" class="secondary">取消</button>
+        </div>
+    </div>
+</div>
+
 <script src="/static/js/main.js"></script>
+<script src="/static/js/visualization.js"></script>
 </body>
 </html>

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import threading
 import time
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, session
 
 from config import Settings
+from src import db
 from src.dataset_manager import DatasetManager, DatasetManagerError
 from src.search_service import SearchService, SearchServiceError
 from src.user_service import UserService, UserServiceError
@@ -25,16 +28,29 @@ def create_app() -> Flask:
     """
 
     app = Flask(__name__)
+    app.config["SECRET_KEY"] = os.getenv("NK_SECRET_KEY", "nksoft-dev-secret")
     settings = Settings()
+    db.init_database()
     # 业务层统一由 Service 管理，数据库访问不直接写在这里。
     service = SearchService(settings)
     # 数据集管理和用户管理都通过封装好的 service 层访问数据库。
     dataset_mgr = DatasetManager()
     user_svc = UserService()
 
-    # 基础框架阶段：允许数据缺失，便于先跑通 Web 和 API。
-    # 启动时允许数据缺失，便于先跑通 Web 和 API；后续可再补数据集。
-    service.initialize(allow_missing_data=True)
+    def initialize_search_service() -> None:
+        # 数据文件可能很大，初始化放到后台，避免前端页面被启动阶段阻塞。
+        service.initialize(allow_missing_data=True)
+
+    if os.getenv("NK_SYNC_INIT") == "1":
+        initialize_search_service()
+    else:
+        service.initializing = True
+        threading.Thread(target=initialize_search_service, daemon=True).start()
+
+    def require_admin():
+        if session.get("role") != "admin":
+            return jsonify({"success": False, "error": "administrator login required"}), 403
+        return None
 
     @app.route("/")
     def index():
@@ -52,6 +68,15 @@ def create_app() -> Flask:
         except SearchServiceError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
 
+    @app.route("/api/embedding", methods=["GET"])
+    def embedding():
+        try:
+            basis = request.args.get("basis", "umap")
+            color_by = request.args.get("color_by", "cell_type")
+            return jsonify({"success": True, **service.embedding_points(basis=basis, color_by=color_by)})
+        except SearchServiceError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
     @app.route("/api/datasets", methods=["GET"])
     def list_datasets():
         # 数据集列表直接来自数据库，前端用于展示和切换。
@@ -59,6 +84,9 @@ def create_app() -> Flask:
 
     @app.route("/api/datasets", methods=["POST"])
     def add_dataset():
+        guard = require_admin()
+        if guard:
+            return guard
         payload = request.get_json()
 
         if not isinstance(payload, dict):
@@ -71,11 +99,17 @@ def create_app() -> Flask:
         if not name or not path:
             return jsonify({"success": False, "error": "missing name or path"}), 400
 
-        dataset_mgr.add_dataset(name, path, desc)
-        return jsonify({"success": True})
+        try:
+            dataset_mgr.add_dataset(name, path, desc)
+            return jsonify({"success": True})
+        except DatasetManagerError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
 
     @app.route("/api/datasets/<dataset_name>", methods=["DELETE"])
     def delete_dataset(dataset_name: str):
+        guard = require_admin()
+        if guard:
+            return guard
         try:
             # 删除数据集时会同步清理对应索引记录，避免数据库残留脏数据。
             dataset_mgr.delete_dataset(dataset_name)
@@ -85,6 +119,9 @@ def create_app() -> Flask:
 
     @app.route("/api/datasets/select", methods=["POST"])
     def select_dataset():
+        guard = require_admin()
+        if guard:
+            return guard
         payload = request.get_json(silent=True) or {}
         try:
             name = payload["name"]
@@ -101,6 +138,8 @@ def create_app() -> Flask:
             username = payload["username"]
             password = payload["password"]
             role = payload.get("role", "user")
+            if role == "admin" and session.get("role") != "admin":
+                return jsonify({"success": False, "error": "admin role requires administrator login"}), 403
             # 注册逻辑在 service 层完成，密码哈希和用户名查重都在这里处理。
             user_svc.register(username, password, role=role)
             return jsonify({"success": True})
@@ -113,23 +152,46 @@ def create_app() -> Flask:
         try:
             username = payload["username"]
             password = payload["password"]
+            if not username or not password:
+                return jsonify({"success": False, "code": "missing_credentials", "error": "username and password required"}), 400
+            if not user_svc.user_exists(username):
+                return jsonify({"success": False, "code": "account_not_found", "error": "account not found"}), 404
             # 登录只负责把账号密码交给 service 层比对，不在路由里操作数据库。
-            ok = user_svc.login(username, password)
-            return jsonify({"success": ok})
+            user = user_svc.authenticate(username, password)
+            if not user:
+                return jsonify({"success": False, "code": "invalid_password", "error": "invalid password"}), 401
+            session["username"] = user["username"]
+            session["role"] = user["role"]
+            return jsonify({"success": True, "user": user})
         except KeyError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
 
     @app.route("/api/logout", methods=["POST"])
     def logout():
+        session.clear()
         return jsonify({"success": True})
+
+    @app.route("/api/session", methods=["GET"])
+    def current_session():
+        username = session.get("username")
+        if not username:
+            return jsonify({"success": True, "user": None})
+        user = user_svc.get_user(username)
+        return jsonify({"success": True, "user": user})
 
     @app.route("/api/users", methods=["GET"])
     def list_users():
+        guard = require_admin()
+        if guard:
+            return guard
         # 用户列表来自 users 表，主要给管理员后台使用。
         return jsonify({"success": True, "users": user_svc.list_users()})
 
     @app.route("/api/users/<username>", methods=["DELETE"])
     def delete_user(username: str):
+        guard = require_admin()
+        if guard:
+            return guard
         try:
             # 删除用户时由 service 统一处理数据库写操作和异常。
             user_svc.delete_user(username)
@@ -139,6 +201,9 @@ def create_app() -> Flask:
 
     @app.route("/api/rebuild-index", methods=["POST"])
     def rebuild_index():
+        guard = require_admin()
+        if guard:
+            return guard
         payload = request.get_json(silent=True) or {}
         try:
             # B 负责的动态索引入口：前端或管理员工具可用它切换/重建索引类型。
@@ -216,4 +281,4 @@ def create_app() -> Flask:
 
 
 if __name__ == "__main__":
-    create_app().run(debug=True, port=5000)
+    create_app().run(debug=True, port=5000, use_reloader=False)
