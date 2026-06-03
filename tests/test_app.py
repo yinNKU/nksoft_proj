@@ -318,6 +318,57 @@ def test_user_routes(client):
     assert logout_response.get_json()["success"] is True
 
 
+def test_search_without_authentication(client):
+    """未登录用户也可以调用检索接口（搜索不需要登录权限）。"""
+    response = client.post(
+        "/api/search",
+        json={"mode": "id", "cell_index": 0, "top_k": 2},
+    )
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert len(payload["results"]) == 2
+
+
+def test_rebuild_index_requires_admin(client):
+    """普通用户（未登录）不能重建索引。"""
+    response = client.post("/api/rebuild-index", json={"index_type": "flat"})
+    payload = response.get_json()
+    assert payload["success"] is False
+    assert "administrator" in payload["error"].lower()
+
+
+def test_rebuild_index_with_admin_succeeds(client):
+    """管理员登录后可以重建索引。"""
+    client.post("/api/login", json={"username": "admin", "password": "secret"})
+
+    response = client.post("/api/rebuild-index", json={"index_type": "flat"})
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["index_type"] == "flat"
+
+
+def test_login_missing_credentials(client):
+    """缺少账号或密码时登录应返回 400。"""
+    response = client.post("/api/login", json={"username": "", "password": ""})
+    assert response.status_code == 400
+
+
+def test_sync_init_mode(client, monkeypatch):
+    """验证同步初始化模式可通过环境变量控制。"""
+    monkeypatch.setenv("NK_SYNC_INIT", "1")
+    # Re-create client with sync init
+    monkeypatch.setattr(app_module, "SearchService", FakeService)
+    monkeypatch.setattr(app_module, "DatasetManager", FakeDatasetManager)
+    monkeypatch.setattr(app_module, "UserService", FakeUserService)
+    new_app = app_module.create_app()
+    test_client = new_app.test_client()
+
+    response = test_client.get("/api/status")
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["loaded"] is True
+
+
 def test_rebuild_index_route(client):
     client.post("/api/login", json={"username": "admin", "password": "secret"})
 

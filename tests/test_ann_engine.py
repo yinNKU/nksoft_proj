@@ -140,6 +140,67 @@ def test_save_and_load_index_with_metadata():
     assert similarities[0] > 0.99
 
 
+def test_build_with_empty_vectors_raises():
+    """空向量矩阵应抛出 ANNEngineError。"""
+    engine = ANNEngine()
+    with pytest.raises(ANNEngineError, match="empty"):
+        engine.build_index(np.empty((0, 16), dtype=np.float32), index_type="flat")
+
+
+def test_build_with_zero_dim_vectors_raises():
+    """零维向量应抛出 ANNEngineError。"""
+    engine = ANNEngine()
+    with pytest.raises(ANNEngineError, match="zero-dimensional"):
+        engine.build_index(np.empty((100, 0), dtype=np.float32), index_type="flat")
+
+
+def test_search_before_build_raises():
+    """未构建索引时调用 search() 应抛出 ANNEngineError。"""
+    engine = ANNEngine()
+    with pytest.raises(ANNEngineError, match="index is not built"):
+        engine.search(np.ones(16, dtype=np.float32), top_k=5)
+
+
+def test_top_k_exceeds_dataset_returns_all():
+    """请求的 top_k 超过数据量时应自动截断。"""
+    vectors = normalized_vectors(rows=50, dims=8, seed=17)
+    engine = ANNEngine()
+    engine.build_index(vectors, index_type="flat")
+
+    similarities, indices = engine.search(vectors[0], top_k=200)
+
+    assert len(indices) == 50
+    assert len(similarities) == 50
+
+
+@pytest.mark.parametrize("index_type", ["flat", "hnsw", "ivf"])
+def test_index_type_recorded_in_engine(index_type):
+    """构建后 engine.index_type 应与请求一致。"""
+    vectors = normalized_vectors(rows=40, dims=10, seed=18)
+    engine = ANNEngine()
+    engine.build_index(
+        vectors,
+        index_type=index_type,
+        params={"hnsw_m": 16, "hnsw_ef_search": 32, "ivf_nlist": 5, "ivf_nprobe": 3},
+    )
+    assert engine.index_type == index_type
+    assert engine.metadata["index_type"] == index_type
+
+
+def test_build_time_ms_is_recorded():
+    """验证所有索引类型都记录构建耗时。"""
+    vectors = normalized_vectors(rows=60, dims=12, seed=19)
+    for index_type in ["flat", "hnsw", "ivf"]:
+        engine = ANNEngine()
+        engine.build_index(
+            vectors,
+            index_type=index_type,
+            params={"hnsw_m": 16, "hnsw_ef_search": 32, "ivf_nlist": 5, "ivf_nprobe": 3},
+        )
+        assert engine.build_time_ms is not None
+        assert engine.build_time_ms > 0, f"{index_type}: build_time_ms should be > 0"
+
+
 def test_load_index_rejects_metadata_mismatch():
     vectors = normalized_vectors(rows=40, dims=10, seed=16)
     output_dir = fresh_test_output_dir()
