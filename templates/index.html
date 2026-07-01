@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+<!-- 页面主体：包含导航栏、登录区和业务工作区。 -->
 <main class="page">
     <header class="topbar">
         <div>
@@ -19,6 +20,7 @@
         </div>
     </header>
 
+    <!-- 登录区域：收集普通用户和管理员的账号密码。 -->
     <section class="auth-shell" id="login-panel">
         <div class="auth-card">
             <div class="auth-copy">
@@ -39,6 +41,7 @@
         </div>
     </section>
 
+    <!-- 注册区域：创建普通用户并显示注册结果。 -->
     <section class="auth-shell hidden" id="register-panel">
         <div class="auth-card register-card">
             <div class="auth-copy">
@@ -59,7 +62,9 @@
         </div>
     </section>
 
+    <!-- 业务工作区：登录成功后显示检索和管理功能。 -->
     <section class="workspace hidden" id="workspace">
+        <!-- 系统状态区域：展示数据加载和索引信息。 -->
         <section class="panel status-panel">
             <div class="panel-heading">
                 <div>
@@ -71,6 +76,7 @@
             <pre id="status-json">正在读取状态...</pre>
         </section>
 
+        <!-- 检索区域：收集查询方式、Top-K 和筛选条件。 -->
         <section class="panel search-panel">
             <div class="panel-heading">
                 <div>
@@ -136,6 +142,7 @@
             </div>
         </section>
 
+        <!-- 结果区域：展示相似细胞及其元数据。 -->
         <section class="panel">
             <div class="panel-heading">
                 <div>
@@ -163,6 +170,7 @@
             </div>
         </section>
 
+        <!-- 可视化区域：绘制 PCA 或 UMAP 并高亮检索结果。 -->
         <section class="panel visualization-panel">
             <div class="panel-heading">
                 <div>
@@ -196,6 +204,7 @@
             </div>
         </section>
 
+        <!-- 管理员区域：管理数据集、索引和用户记录。 -->
         <section class="panel hidden" id="admin-panel">
             <div class="panel-heading">
                 <div>
@@ -245,6 +254,7 @@
     </section>
 </main>
 
+<!-- 注册提示弹窗：账号不存在时引导用户进入注册页面。 -->
 <div id="register-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-card">
         <span class="section-kicker">Account needed</span>
@@ -257,6 +267,7 @@
     </div>
 </div>
 
+<!-- 前端脚本：先加载页面逻辑，再加载可视化逻辑。 -->
 <script src="/static/js/main.js"></script>
 <script src="/static/js/visualization.js"></script>
 </body>

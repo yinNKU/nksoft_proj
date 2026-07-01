@@ -16,6 +16,7 @@ SCHEMA = ROOT / "database" / "schema.sql"
 
 def init_db(db_path: Path = DB_PATH, schema_path: Path = SCHEMA) -> None:
     # 初始化脚本入口：先指定数据库路径，再复用 src.db 里的建库逻辑。
+    """执行建表脚本并写入默认数据。"""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
@@ -29,6 +30,7 @@ def init_db(db_path: Path = DB_PATH, schema_path: Path = SCHEMA) -> None:
         cur.execute("SELECT COUNT(1) FROM users WHERE username=?", ("admin",))
         if cur.fetchone()[0] == 0:
             now = datetime.now(timezone.utc).isoformat()
+            # 保存当前步骤需要的数据。
             pwd = generate_password_hash("admin")
             cur.execute(
                 "INSERT INTO users(username,password_hash,role,created_at) VALUES (?,?,?,?)",
@@ -39,12 +41,14 @@ def init_db(db_path: Path = DB_PATH, schema_path: Path = SCHEMA) -> None:
         if cur.fetchone()[0] == 0:
             now = datetime.now(timezone.utc).isoformat()
             sample_path = ROOT / "data" / "sample.h5ad"
+            # 执行当前阶段的关键处理。
             cur.execute(
                 "INSERT INTO datasets(name,path,description,is_active,created_at) VALUES (?,?,?,?,?)",
                 ("sample", str(sample_path), "Default sample dataset", 0, now),
             )
         conn.commit()
     finally:
+        # 执行当前阶段的关键处理。
         conn.close()
 
 

@@ -5,6 +5,7 @@ const state = {
     lastSearch: null
 };
 
+// 根据 CSS 选择器获取第一个页面元素。
 const qs = (selector) => document.querySelector(selector);
 
 const elements = {
@@ -31,16 +32,19 @@ const elements = {
     adminMessage: qs("#admin-message")
 };
 
+// 设置当前界面状态和提示。
 function setMessage(target, message, isError = false) {
     target.textContent = message || "";
     target.classList.toggle("error", Boolean(isError));
 }
 
+// 发送 HTTP 请求并统一解析 JSON 结果。
 async function requestJson(url, options = {}) {
     const response = await fetch(url, {
         headers: {"Content-Type": "application/json", ...(options.headers || {})},
         ...options
     });
+    // 保存当前步骤需要的数据。
     const data = await response.json();
     if (!response.ok || data.success === false) {
         const error = new Error(data.error || "请求失败");
@@ -48,9 +52,11 @@ async function requestJson(url, options = {}) {
         error.status = response.status;
         throw error;
     }
+    // 返回当前函数的处理结果。
     return data;
 }
 
+// 显示指定的界面内容。
 function showLoginPanel() {
     elements.loginPanel.classList.remove("hidden");
     elements.registerPanel.classList.add("hidden");
@@ -58,6 +64,7 @@ function showLoginPanel() {
     setMessage(elements.registerMessage, "");
 }
 
+// 显示指定的界面内容。
 function showRegisterPanel(prefillUsername = "") {
     elements.loginPanel.classList.add("hidden");
     elements.registerPanel.classList.remove("hidden");
@@ -69,15 +76,18 @@ function showRegisterPanel(prefillUsername = "") {
     qs("#register-username").focus();
 }
 
+// 显示指定的界面内容。
 function showRegisterModal() {
     elements.registerModal.classList.remove("hidden");
     qs("#modal-go-register").focus();
 }
 
+// 隐藏指定的界面内容。
 function hideRegisterModal() {
     elements.registerModal.classList.add("hidden");
 }
 
+// 根据登录用户更新页面权限。
 function applySession(user) {
     state.user = user;
     const isLoggedIn = Boolean(user);
@@ -92,6 +102,7 @@ function applySession(user) {
         ? `${user.username} (${user.role === "admin" ? "管理员" : "普通用户"})`
         : "未登录";
 
+    // 根据当前状态执行对应处理。
     if (isLoggedIn) {
         loadStatus();
         loadMetadata();
@@ -101,6 +112,7 @@ function applySession(user) {
     }
 }
 
+// 加载数据并更新对应页面状态。
 async function loadSession() {
     try {
         const data = await requestJson("/api/session");
@@ -110,6 +122,7 @@ async function loadSession() {
     }
 }
 
+// 加载数据并更新对应页面状态。
 async function loadStatus() {
     const data = await requestJson("/api/status");
     elements.statusJson.textContent = JSON.stringify(data, null, 2);
@@ -130,6 +143,7 @@ async function loadStatus() {
         </div>
     `).join("");
 
+    // 根据当前状态执行对应处理。
     if (data.loaded && state.metadataFields.length === 0) {
         await loadMetadata();
     }
@@ -137,9 +151,11 @@ async function loadStatus() {
         window.NKVisualization.ensureLoaded();
     }
 
+    // 返回当前函数的处理结果。
     return data;
 }
 
+// 加载数据并更新对应页面状态。
 async function loadMetadata() {
     try {
         const data = await requestJson("/api/metadata");
@@ -152,6 +168,7 @@ async function loadMetadata() {
     }
 }
 
+// 根据当前数据渲染页面内容。
 function renderMetadataFields() {
     if (!state.metadataFields.length) {
         elements.metadataFields.textContent = "当前没有可用 metadata 字段。";
@@ -165,6 +182,7 @@ function renderMetadataFields() {
     elements.filterField.innerHTML = state.metadataFields
         .map((field) => `<option value="${escapeHtml(field)}">${escapeHtml(field)}</option>`)
         .join("");
+    // 保存当前步骤需要的数据。
     const vizColor = qs("#viz-color");
     if (vizColor) {
         const current = vizColor.value || "cell_type";
@@ -175,6 +193,7 @@ function renderMetadataFields() {
     }
 }
 
+// 根据最新数据更新当前状态。
 function updateModeInputs() {
     const mode = qs("#mode").value;
     qs("#cell-index-row").classList.toggle("hidden", mode !== "id");
@@ -182,6 +201,7 @@ function updateModeInputs() {
     qs("#vector-row").classList.toggle("hidden", mode !== "vector");
 }
 
+// 收集表单数据并构造请求参数。
 function collectPayload() {
     const mode = qs("#mode").value;
     const payload = {
@@ -191,6 +211,7 @@ function collectPayload() {
         filters: {...state.filters}
     };
 
+    // 根据当前状态执行对应处理。
     if (mode === "id") {
         payload.cell_index = Number(qs("#cell-index").value);
     } else if (mode === "cell_id") {
@@ -202,9 +223,11 @@ function collectPayload() {
             .filter((item) => !Number.isNaN(item));
     }
 
+    // 返回当前函数的处理结果。
     return payload;
 }
 
+// 根据当前数据渲染页面内容。
 function renderResults(results) {
     if (!results || results.length === 0) {
         elements.resultsBody.innerHTML = `<tr><td colspan="5" class="empty">暂无结果</td></tr>`;
@@ -212,6 +235,7 @@ function renderResults(results) {
     }
 
     elements.resultsBody.innerHTML = results.map((item) => {
+        // 保存当前步骤需要的数据。
         const metadataText = Object.entries(item.metadata || {})
             .slice(0, 10)
             .map(([key, value]) => `<span><b>${escapeHtml(key)}</b>: ${escapeHtml(String(value))}</span>`)
@@ -229,6 +253,7 @@ function renderResults(results) {
     }).join("");
 }
 
+// 提交检索请求并刷新结果区域。
 async function doSearch() {
     setMessage(elements.errorBox, "");
     try {
@@ -245,6 +270,7 @@ async function doSearch() {
                 response: data
             }
         }));
+        // 根据当前状态执行对应处理。
         if (data.warning) {
             setMessage(elements.errorBox, data.warning, false);
         }
@@ -256,6 +282,7 @@ async function doSearch() {
     }
 }
 
+// 根据当前数据渲染页面内容。
 function renderFilters() {
     const entries = Object.entries(state.filters);
     elements.activeFilters.innerHTML = entries.length
@@ -267,6 +294,7 @@ function renderFilters() {
         : `<span class="muted">未添加筛选。</span>`;
 }
 
+// 校验并添加一条元数据筛选条件。
 function addFilter() {
     const field = elements.filterField.value;
     const value = elements.filterValue.value.trim();
@@ -278,10 +306,12 @@ function addFilter() {
     renderFilters();
 }
 
+// 加载数据并更新对应页面状态。
 async function loadAdminData() {
     await Promise.all([loadDatasets(), loadUsers()]);
 }
 
+// 加载数据并更新对应页面状态。
 async function loadDatasets() {
     const data = await requestJson("/api/datasets");
     const datasets = data.datasets || [];
@@ -302,6 +332,7 @@ async function loadDatasets() {
         : `<p class="muted">暂无数据集记录。</p>`;
 }
 
+// 加载数据并更新对应页面状态。
 async function loadUsers() {
     const data = await requestJson("/api/users");
     const users = data.users || [];
@@ -319,17 +350,20 @@ async function loadUsers() {
         : `<p class="muted">暂无用户。</p>`;
 }
 
+// 处理对应的用户操作。
 async function handleLogin(event) {
     event.preventDefault();
     setMessage(elements.authMessage, "");
     const username = qs("#login-username").value.trim();
     const password = qs("#login-password").value;
 
+    // 根据当前状态执行对应处理。
     if (!username || !password) {
         setMessage(elements.authMessage, "请输入账号和密码。", true);
         return;
     }
 
+    // 执行请求并统一处理异常。
     try {
         const data = await requestJson("/api/login", {
             method: "POST",
@@ -340,29 +374,34 @@ async function handleLogin(event) {
         });
         applySession(data.user);
     } catch (error) {
+        // 根据当前状态执行对应处理。
         if (error.code === "account_not_found") {
             showRegisterModal();
             return;
         }
         if (error.code === "invalid_password") {
             setMessage(elements.authMessage, "密码错误，请重新输入。", true);
+            // 返回当前函数的处理结果。
             return;
         }
         setMessage(elements.authMessage, error.message, true);
     }
 }
 
+// 处理对应的用户操作。
 async function handleRegister(event) {
     event.preventDefault();
     setMessage(elements.registerMessage, "");
     const username = qs("#register-username").value.trim();
     const password = qs("#register-password").value;
 
+    // 根据当前状态执行对应处理。
     if (!username || !password) {
         setMessage(elements.registerMessage, "请输入账号和密码。", true);
         return;
     }
 
+    // 执行请求并统一处理异常。
     try {
         await requestJson("/api/register", {
             method: "POST",
@@ -378,6 +417,7 @@ async function handleRegister(event) {
         setMessage(elements.authMessage, "注册成功，可以使用新账号登录。");
         event.target.reset();
     } catch (error) {
+        // 根据当前状态执行对应处理。
         if (error.message === "username already exists") {
             setMessage(elements.registerMessage, "该账号已存在，请返回登录。", true);
             return;
@@ -386,6 +426,7 @@ async function handleRegister(event) {
     }
 }
 
+// 处理对应的用户操作。
 async function handleLogout() {
     await requestJson("/api/logout", {method: "POST", body: "{}"});
     state.filters = {};
@@ -393,6 +434,7 @@ async function handleLogout() {
     applySession(null);
 }
 
+// 处理对应的用户操作。
 async function handleDatasetSubmit(event) {
     event.preventDefault();
     try {
@@ -412,6 +454,7 @@ async function handleDatasetSubmit(event) {
     }
 }
 
+// 处理对应的用户操作。
 async function handleAdminUserSubmit(event) {
     event.preventDefault();
     try {
@@ -431,11 +474,13 @@ async function handleAdminUserSubmit(event) {
     }
 }
 
+// 处理对应的用户操作。
 async function handleAdminListClick(event) {
     const selectDataset = event.target.dataset.selectDataset;
     const deleteDataset = event.target.dataset.deleteDataset;
     const deleteUser = event.target.dataset.deleteUser;
 
+    // 执行请求并统一处理异常。
     try {
         if (selectDataset) {
             await requestJson("/api/datasets/select", {
@@ -445,6 +490,7 @@ async function handleAdminListClick(event) {
             setMessage(elements.adminMessage, "已切换激活数据集记录。重启服务或设置 SC_DATA_PATH 后可加载对应数据。");
             await loadDatasets();
         }
+        // 根据当前状态执行对应处理。
         if (deleteDataset) {
             await requestJson(`/api/datasets/${encodeURIComponent(deleteDataset)}`, {method: "DELETE"});
             await loadDatasets();
@@ -458,6 +504,7 @@ async function handleAdminListClick(event) {
     }
 }
 
+// 请求后端重建当前类型的索引。
 async function rebuildIndex() {
     try {
         const data = await requestJson("/api/rebuild-index", {
@@ -471,6 +518,7 @@ async function rebuildIndex() {
     }
 }
 
+// 转义文本以避免 HTML 解析冲突。
 function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;",
